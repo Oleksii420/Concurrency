@@ -3,55 +3,39 @@ package com.example.dice
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import kotlin.concurrent.thread
-import kotlin.random.Random
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 class DiceViewModel : ViewModel() {
+
+    private val model = DiceModel()
 
     private val _diceValues = MutableLiveData(List(5) { 1 })
     val diceValues: LiveData<List<Int>> = _diceValues
 
     private val _isRolling = MutableLiveData(false)
     val isRolling: LiveData<Boolean> = _isRolling
-
     private val currentValues = IntArray(5) { 1 }
-    private val rollingThreads = mutableListOf<Thread>()
+
+    private var job: Job? = null
+
+    private val _buttonText = MutableLiveData("ROLL")
+    val buttonText: LiveData<String> = _buttonText
 
     fun rollDice() {
-        if (_isRolling.value == true) return
+        job?.cancel()
+
         _isRolling.value = true
-        rollingThreads.clear()
+        _buttonText.value = "RESTART"
 
-        val diceThreads = List(5) { index ->
-            thread {
-                try {
-                    val steps = Random.nextInt(15, 31)
-                    repeat(steps) {
-                        synchronized(currentValues) {
-                            currentValues[index] = Random.nextInt(1, 7)
-                            _diceValues.postValue(currentValues.toList())
-                        }
-                        Thread.sleep(100)
-                    }
-                } catch (e: InterruptedException) {
-                }
+        job = viewModelScope.launch {
+            model.rollAll { index, value ->
+                currentValues[index] = value
+                _diceValues.value = currentValues.toList()
             }
+            _isRolling.value = false
+            _buttonText.value = "ROLL"
         }
-
-        val waiter = thread {
-            try {
-                diceThreads.forEach { it.join() }
-                _isRolling.postValue(false)
-            } catch (e: InterruptedException) {
-            }
-        }
-
-        rollingThreads.addAll(diceThreads)
-        rollingThreads.add(waiter)
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        rollingThreads.forEach { it.interrupt() }
     }
 }
